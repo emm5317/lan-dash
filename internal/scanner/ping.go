@@ -15,7 +15,7 @@ func (s *Scanner) PingDevice(ip string) time.Duration {
 		if err == nil {
 			conn.Close()
 			rtt := time.Since(start)
-			s.store.UpdateDeviceRTT(ip, rtt)
+			s.store.Upsert(store.Device{IP: ip, RTT: rtt, Alive: true})
 			return rtt
 		}
 	}

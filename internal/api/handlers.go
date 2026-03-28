@@ -28,7 +28,7 @@ func (h *Handler) getDevices(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	devices := h.store.GetDevices()
+	devices := h.store.All()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(devices)
 }

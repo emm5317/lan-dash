@@ -24,7 +24,15 @@ func (s *Scanner) ScanPorts(ip string) {
 			conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 			if err == nil {
 				conn.Close()
-				s.store.AddOpenPort(ip, p)
+				// Get current device and add port
+				devices := s.store.All()
+				for _, d := range devices {
+					if d.IP == ip {
+						d.OpenPorts = append(d.OpenPorts, p)
+						s.store.Upsert(d)
+						break
+					}
+				}
 			}
 		}(port)
 	}

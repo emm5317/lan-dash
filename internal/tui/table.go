@@ -1,23 +1,25 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/emm5317/lan-dash/internal/store"
 	"time"
 )
 
-func renderTable(devices map[string]*store.Device) string {
+func renderTable(devices []store.Device) string {
 	if len(devices) == 0 {
 		return "No devices found"
 	}
 
 	table := ""
-	for ip, dev := range devices {
+	for _, dev := range devices {
 		rttColor := getRTTColor(dev.RTT)
 		row := lipgloss.JoinHorizontal(lipgloss.Left,
-			lipgloss.NewStyle().Width(15).Render(ip),
+			lipgloss.NewStyle().Width(15).Render(dev.IP),
 			lipgloss.NewStyle().Width(17).Render(dev.MAC),
-			lipgloss.NewStyle().Foreground(rttColor).Render(dev.RTT.String()),
+			lipgloss.NewStyle().Foreground(rttColor).Render(fmt.Sprintf("%.2fms", dev.RTTms())),
+			lipgloss.NewStyle().Width(10).Render(dev.Hostname),
 		)
 		table += row + "\n"
 	}

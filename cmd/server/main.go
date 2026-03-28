@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	s := store.NewStore()
+	s := store.New()
 	sc := scanner.NewScanner(s)
 	h := api.NewHandler(s, sc)
 	t := tui.NewTUI(s)

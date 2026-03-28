@@ -30,7 +30,7 @@ func (s *Scanner) StartARP() {
 			// Process neighbor
 			ip := neigh.IP.String()
 			mac := neigh.HardwareAddr.String()
-			s.store.UpdateDeviceFromARP(ip, mac)
+			s.store.Upsert(store.Device{IP: ip, MAC: mac, Alive: true})
 		}
 	}
 }
