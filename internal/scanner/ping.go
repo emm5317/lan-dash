@@ -1,23 +1,21 @@
 package scanner
 
 import (
-	"github.com/emm5317/lan-dash/internal/store"
+	"context"
 	"net"
 	"time"
 )
 
-func (s *Scanner) PingDevice(ip string) time.Duration {
-	// Try TCP connect to port 80 first, then 443
-	ports := []string{"80", "443"}
-	for _, port := range ports {
+func TCPPing(ctx context.Context, ip string) (time.Duration, bool) {
+	for _, port := range []string{"80", "443", "22", "8080"} {
+		tctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		defer cancel()
 		start := time.Now()
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), 1*time.Second)
+		conn, err := (&net.Dialer{}).DialContext(tctx, "tcp", ip+":"+port)
 		if err == nil {
 			conn.Close()
-			rtt := time.Since(start)
-			s.store.Upsert(store.Device{IP: ip, RTT: rtt, Alive: true})
-			return rtt
+			return time.Since(start), true
 		}
 	}
-	return 0
+	return 0, false
 }

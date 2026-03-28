@@ -1,40 +1,49 @@
 package scanner
 
 import (
-	"github.com/emm5317/lan-dash/internal/store"
+	"context"
+	"fmt"
 	"net"
-	"strconv"
+	"sort"
 	"sync"
 	"time"
 )
 
-func (s *Scanner) ScanPorts(ip string) {
-	commonPorts := []int{22, 80, 443, 8080} // etc.
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10) // semaphore for 10 concurrent scans
+var CommonPorts = []int{
+	22, 80, 443, 8080, 8443,
+	3000, 5000, 9000,
+	32400, // Plex
+	1883,  // MQTT / Home Assistant
+	8123,  // Home Assistant UI
+	5353,  // mDNS
+}
 
-	for _, port := range commonPorts {
+func ScanPorts(ctx context.Context, ip string) []int {
+	sem := make(chan struct{}, 20)
+	results := make(chan int, len(CommonPorts))
+	var wg sync.WaitGroup
+	for _, port := range CommonPorts {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(p int) {
 			defer wg.Done()
-			sem <- struct{}{}        // acquire
-			defer func() { <-sem }() // release
-
-			addr := net.JoinHostPort(ip, strconv.Itoa(p))
-			conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+			defer func() { <-sem }()
+			tctx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+			defer cancel()
+			conn, err := (&net.Dialer{}).DialContext(tctx, "tcp",
+				fmt.Sprintf("%s:%d", ip, p))
 			if err == nil {
 				conn.Close()
-				// Get current device and add port
-				devices := s.store.All()
-				for _, d := range devices {
-					if d.IP == ip {
-						d.OpenPorts = append(d.OpenPorts, p)
-						s.store.Upsert(d)
-						break
-					}
-				}
+				results <- p
 			}
 		}(port)
 	}
 	wg.Wait()
+	close(results)
+	var open []int
+	for p := range results {
+		open = append(open, p)
+	}
+	sort.Ints(open)
+	return open
 }
