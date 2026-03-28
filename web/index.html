@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LAN Dash</title>
+</head>
+<body>
+    <h1>LAN Devices</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>IP</th>
+                <th>MAC</th>
+                <th>RTT</th>
+            </tr>
+        </thead>
+        <tbody id="devices">
+            <!-- Devices will be inserted here -->
+        </tbody>
+    </table>
+
+    <script type="module">
+        import { Datastar } from 'https://cdn.jsdelivr.net/npm/@sudodevnull/datastar@1/dist/datastar.js';
+
+        const es = new EventSource('/api/events');
+        es.onmessage = function(event) {
+            Datastar.morph(event.data);
+        };
+    </script>
+</body>
+</html>
