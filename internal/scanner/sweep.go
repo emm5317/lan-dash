@@ -11,7 +11,7 @@ import (
 
 // SweepSubnet sends UDP packets to every address in the local /24 subnet
 // to populate the OS ARP table before the first arp -a read.
-func SweepSubnet(ctx context.Context) {
+func SweepSubnet(ctx context.Context, workers int) {
 	prefix, err := localSubnet()
 	if err != nil {
 		slog.Warn("sweep: could not detect subnet", "err", err)
@@ -22,7 +22,7 @@ func SweepSubnet(ctx context.Context) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 64)
+	sem := make(chan struct{}, workers)
 
 	for i := 1; i <= 254; i++ {
 		ip := fmt.Sprintf("%s.%d", prefix, i)

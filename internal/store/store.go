@@ -15,6 +15,7 @@ type Device struct {
 	OpenPorts []int
 	Alive     bool
 	LastSeen  time.Time
+	Speed     string
 }
 
 func (d Device) RTTms() float64 {
@@ -25,6 +26,58 @@ func (d Device) SafeID() string {
 	// replace dots for use as HTML id attribute
 	r := strings.NewReplacer(".", "-")
 	return "row-" + r.Replace(d.IP)
+}
+
+// DeviceGroup represents a logical grouping of devices on the network.
+type DeviceGroup string
+
+const (
+	GroupNetwork  DeviceGroup = "Network"
+	GroupComputer DeviceGroup = "Computers"
+	GroupIoT      DeviceGroup = "IoT"
+	GroupUnknown  DeviceGroup = "Unknown"
+)
+
+// GroupOrder defines the display order for device groups.
+var GroupOrder = map[DeviceGroup]int{
+	GroupNetwork:  0,
+	GroupComputer: 1,
+	GroupIoT:      2,
+	GroupUnknown:  3,
+}
+
+// ClassifyDevice determines the DeviceGroup for a device based on vendor and hostname.
+func ClassifyDevice(vendor, hostname string) DeviceGroup {
+	v := strings.ToLower(vendor)
+	h := strings.ToLower(hostname)
+
+	networkKeywords := []string{"cisco", "netgear", "tp-link", "ubiquiti", "aruba", "mikrotik", "router", "gateway"}
+	for _, kw := range networkKeywords {
+		if strings.Contains(v, kw) || strings.Contains(h, kw) {
+			return GroupNetwork
+		}
+	}
+
+	computerKeywords := []string{"apple", "dell", "lenovo", "hp", "asus", "microsoft", "intel"}
+	for _, kw := range computerKeywords {
+		if strings.Contains(v, kw) || strings.Contains(h, kw) {
+			return GroupComputer
+		}
+	}
+
+	iotKeywords := []string{"sonos", "philips", "ring", "nest", "samsung", "lg", "roku", "amazon", "espressif", "raspberry"}
+	for _, kw := range iotKeywords {
+		if strings.Contains(v, kw) || strings.Contains(h, kw) {
+			return GroupIoT
+		}
+	}
+
+	return GroupUnknown
+}
+
+// Group returns the DeviceGroup this device belongs to.
+func (d Device) Group() DeviceGroup {
+	return ClassifyDevice(d.Vendor, d.Hostname)
 }
 
 type EventType int
@@ -66,6 +119,9 @@ func (s *Store) Upsert(d Device) Device {
 		}
 		if len(d.OpenPorts) == 0 {
 			d.OpenPorts = existing.OpenPorts
+		}
+		if d.Speed == "" {
+			d.Speed = existing.Speed
 		}
 	}
 	s.devices[d.IP] = &d

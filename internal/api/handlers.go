@@ -10,17 +10,19 @@ import (
 	"time"
 
 	"github.com/emm5317/lan-dash/internal/history"
+	"github.com/emm5317/lan-dash/internal/nickname"
 	"github.com/emm5317/lan-dash/internal/scanner"
 	"github.com/emm5317/lan-dash/internal/store"
 )
 
 type Handler struct {
-	store *store.Store
-	db    *history.DB
+	store     *store.Store
+	db        *history.DB
+	nicknames *nickname.Store
 }
 
-func NewHandler(s *store.Store, db *history.DB) *Handler {
-	return &Handler{store: s, db: db}
+func NewHandler(s *store.Store, db *history.DB, nicks *nickname.Store) *Handler {
+	return &Handler{store: s, db: db, nicknames: nicks}
 }
 
 // getWebDir returns the path to the web directory.
@@ -47,11 +49,27 @@ func (h *Handler) Handler() http.Handler {
 	webDir := getWebDir()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/devices", h.getDevices)
-	mux.HandleFunc("/api/events", DatastarHandler(h.store))
+	mux.HandleFunc("/api/events", DatastarHandler(h.store, h.nicknames))
 	mux.HandleFunc("/api/scan", h.scanDevices)
 	mux.HandleFunc("/api/history", h.getHistory)
+	mux.HandleFunc("/api/history/all", h.getAllHistory)
+	mux.HandleFunc("/api/nickname", h.setNickname)
 	mux.Handle("/", http.FileServer(http.Dir(webDir)))
 	return mux
+}
+
+// deviceResponse is the JSON shape returned by /api/devices.
+type deviceResponse struct {
+	IP        string  `json:"ip"`
+	MAC       string  `json:"mac"`
+	Vendor    string  `json:"vendor"`
+	Hostname  string  `json:"hostname"`
+	Nickname  string  `json:"nickname"`
+	RTTms     float64 `json:"rtt_ms"`
+	OpenPorts []int   `json:"open_ports"`
+	Alive     bool    `json:"alive"`
+	Group     string  `json:"group"`
+	Speed     string  `json:"speed"`
 }
 
 func (h *Handler) getDevices(w http.ResponseWriter, r *http.Request) {
@@ -60,8 +78,23 @@ func (h *Handler) getDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	devices := h.store.All()
+	out := make([]deviceResponse, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, deviceResponse{
+			IP:        d.IP,
+			MAC:       d.MAC,
+			Vendor:    d.Vendor,
+			Hostname:  d.Hostname,
+			Nickname:  h.nicknames.Get(d.IP),
+			RTTms:     d.RTTms(),
+			OpenPorts: d.OpenPorts,
+			Alive:     d.Alive,
+			Group:     string(d.Group()),
+			Speed:     d.Speed,
+		})
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(devices)
+	json.NewEncoder(w).Encode(out)
 }
 
 func (h *Handler) scanDevices(w http.ResponseWriter, r *http.Request) {
@@ -95,4 +128,46 @@ func (h *Handler) getHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(snapshots)
+}
+
+func (h *Handler) getAllHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	devices := h.store.All()
+	result := make(map[string][]history.Snapshot)
+	for _, d := range devices {
+		snaps, _ := h.db.History(d.IP, 24*time.Hour)
+		if len(snaps) > 0 {
+			result[d.IP] = snaps
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// setNickname handles POST /api/nickname with JSON body {"ip":"...","nickname":"..."}.
+func (h *Handler) setNickname(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		IP       string `json:"ip"`
+		Nickname string `json:"nickname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.IP == "" {
+		http.Error(w, "ip required", http.StatusBadRequest)
+		return
+	}
+	if err := h.nicknames.Set(body.IP, body.Nickname); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

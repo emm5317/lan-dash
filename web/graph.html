@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LAN Graph</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #fafafa; color: #222; }
+    nav { padding: 0.75rem 1.5rem; font-size: 14px; border-bottom: 1px solid #eee; background: #fff; }
+    nav a { text-decoration: none; color: #7F77DD; }
+    nav a.active { font-weight: 600; color: #1D9E75; }
+    nav span { color: #ccc; margin: 0 8px; }
+    h1 { padding: 1rem 1.5rem 0; font-size: 1.25rem; }
+    #graph-container { width: 100%; height: calc(100vh - 100px); position: relative; }
+    svg { width: 100%; height: 100%; }
+    .node circle { cursor: pointer; stroke: #fff; stroke-width: 2px; }
+    .node text { font-size: 11px; fill: #333; pointer-events: none; text-anchor: middle; dominant-baseline: central; }
+    .link { stroke: #ccc; stroke-width: 1.5px; opacity: 0.6; }
+    #tooltip {
+      position: absolute;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      max-width: 220px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Dashboard</a>
+    <span>|</span>
+    <a href="/graph.html" class="active">Graph</a>
+    <span>|</span>
+    <a href="/heatmap.html">Heatmap</a>
+  </nav>
+  <h1>Network Graph</h1>
+  <div id="graph-container">
+    <div id="tooltip"></div>
+  </div>
+
+  <script>
+    const COLOR_ONLINE  = "#1D9E75";
+    const COLOR_OFFLINE = "#888780";
+    const COLOR_GATEWAY = "#BA7517";
+
+    let simulation, svg, linkSel, nodeSel, deviceData = [];
+
+    function isGateway(ip) {
+      return ip.endsWith(".1");
+    }
+
+    function nodeRadius(d) {
+      const ports = d.open_ports ? d.open_ports.length : 0;
+      return Math.max(8, 5 + ports * 2);
+    }
+
+    function nodeColor(d) {
+      if (isGateway(d.ip)) return COLOR_GATEWAY;
+      return d.alive ? COLOR_ONLINE : COLOR_OFFLINE;
+    }
+
+    function nodeLabel(d) {
+      return d.nickname || d.ip;
+    }
+
+    function buildGraph(devices) {
+      deviceData = devices;
+      const container = document.getElementById("graph-container");
+      const W = container.clientWidth;
+      const H = container.clientHeight;
+
+      d3.select("#graph-container svg").remove();
+
+      svg = d3.select("#graph-container")
+        .append("svg")
+        .attr("viewBox", `0 0 ${W} ${H}`);
+
+      const gateway = devices.find(d => isGateway(d.ip));
+      const others = devices.filter(d => !isGateway(d.ip));
+
+      const nodes = [...(gateway ? [gateway] : []), ...others].map(d => ({ ...d }));
+
+      const links = others
+        .filter(() => gateway)
+        .map(d => ({ source: gateway.ip, target: d.ip }));
+
+      simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).id(d => d.ip).distance(120))
+        .force("charge", d3.forceManyBody().strength(-300))
+        .force("center", d3.forceCenter(W / 2, H / 2))
+        .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 20));
+
+      linkSel = svg.append("g")
+        .selectAll("line")
+        .data(links)
+        .join("line")
+        .attr("class", "link");
+
+      const nodeG = svg.append("g")
+        .selectAll("g")
+        .data(nodes)
+        .join("g")
+        .attr("class", "node")
+        .call(d3.drag()
+          .on("start", (event, d) => {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x; d.fy = d.y;
+          })
+          .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+          .on("end", (event, d) => {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null; d.fy = null;
+          })
+        );
+
+      nodeG.append("circle")
+        .attr("r", d => nodeRadius(d))
+        .attr("fill", d => nodeColor(d))
+        .on("mouseover", showTooltip)
+        .on("mousemove", moveTooltip)
+        .on("mouseout", hideTooltip);
+
+      nodeG.append("text")
+        .attr("dy", d => nodeRadius(d) + 13)
+        .text(d => nodeLabel(d));
+
+      nodeSel = nodeG;
+
+      simulation.on("tick", () => {
+        linkSel
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
+        nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+      });
+    }
+
+    function updateColors(devices) {
+      const map = {};
+      devices.forEach(d => { map[d.ip] = d; });
+      if (!nodeSel) return;
+      nodeSel.select("circle")
+        .attr("fill", d => {
+          const fresh = map[d.ip];
+          if (!fresh) return nodeColor(d);
+          d.alive = fresh.alive;
+          d.open_ports = fresh.open_ports;
+          return nodeColor(d);
+        })
+        .attr("r", d => nodeRadius(d));
+    }
+
+    const tooltip = document.getElementById("tooltip");
+
+    function tipRow(label, value) {
+      const div = document.createElement("div");
+      div.style.cssText = "color:#555;";
+      const lbl = document.createElement("span");
+      lbl.style.cssText = "color:#888;font-size:11px;";
+      lbl.textContent = label + ": ";
+      div.appendChild(lbl);
+      div.appendChild(document.createTextNode(value));
+      return div;
+    }
+
+    function showTooltip(event, d) {
+      while (tooltip.firstChild) tooltip.removeChild(tooltip.firstChild);
+
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;font-size:14px;margin-bottom:4px;";
+      title.textContent = d.ip;
+      tooltip.appendChild(title);
+      tooltip.appendChild(tipRow("Vendor", d.vendor || "—"));
+      tooltip.appendChild(tipRow("Hostname", d.hostname || "—"));
+      tooltip.appendChild(tipRow("Ports", (d.open_ports || []).join(", ") || "—"));
+      tooltip.appendChild(tipRow("Speed", d.speed || "—"));
+      tooltip.appendChild(tipRow("Status", d.alive ? "online" : "offline"));
+
+      tooltip.style.opacity = "1";
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      const rect = document.getElementById("graph-container").getBoundingClientRect();
+      let x = event.clientX - rect.left + 14;
+      let y = event.clientY - rect.top - 10;
+      if (x + 230 > rect.width) x = event.clientX - rect.left - 230;
+      tooltip.style.left = x + "px";
+      tooltip.style.top = y + "px";
+    }
+
+    function hideTooltip() {
+      tooltip.style.opacity = "0";
+    }
+
+    async function fetchAndRender() {
+      const res = await fetch("/api/devices");
+      const devices = await res.json();
+      buildGraph(devices);
+    }
+
+    async function fetchAndUpdate() {
+      const res = await fetch("/api/devices");
+      const devices = await res.json();
+      updateColors(devices);
+    }
+
+    fetchAndRender();
+    setInterval(fetchAndUpdate, 10000);
+  </script>
+</body>
+</html>

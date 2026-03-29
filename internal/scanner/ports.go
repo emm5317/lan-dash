@@ -18,17 +18,17 @@ var CommonPorts = []int{
 	5353,  // mDNS
 }
 
-func ScanPorts(ctx context.Context, ip string) []int {
+func ScanPorts(ctx context.Context, ip string, ports []int, timeout time.Duration) []int {
 	sem := make(chan struct{}, 20)
-	results := make(chan int, len(CommonPorts))
+	results := make(chan int, len(ports))
 	var wg sync.WaitGroup
-	for _, port := range CommonPorts {
+	for _, port := range ports {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(p int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			tctx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+			tctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 			conn, err := (&net.Dialer{}).DialContext(tctx, "tcp",
 				fmt.Sprintf("%s:%d", ip, p))

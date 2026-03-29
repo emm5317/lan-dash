@@ -36,6 +36,14 @@ type arpEntry struct {
 	MAC string
 }
 
+// Options controls scanner behaviour.
+type Options struct {
+	Interval    time.Duration
+	PingTimeout time.Duration
+	PortTimeout time.Duration
+	Ports       []int
+}
+
 // parseARP runs "arp -a" and parses the output into IP/MAC pairs.
 // Only dynamic entries are returned (equivalent to reachable neighbors).
 func parseARP() ([]arpEntry, error) {
@@ -68,29 +76,35 @@ func parseARP() ([]arpEntry, error) {
 	return entries, nil
 }
 
-func enrich(ctx context.Context, dev store.Device, s *store.Store) {
-	rtt, alive := TCPPing(ctx, dev.IP)
+func enrich(ctx context.Context, dev store.Device, s *store.Store, opts Options) {
+	rtt, alive := TCPPing(ctx, dev.IP, opts.PingTimeout)
 	dev.RTT = rtt
 	dev.Alive = alive
 	dev.Vendor = vendor(dev.MAC)
 	if alive {
-		dev.OpenPorts = ScanPorts(ctx, dev.IP)
+		dev.OpenPorts = ScanPorts(ctx, dev.IP, opts.Ports, opts.PortTimeout)
 		if names, err := net.LookupAddr(dev.IP); err == nil && len(names) > 0 {
 			dev.Hostname = strings.TrimSuffix(names[0], ".")
 		}
+		dev.Speed = EstimateQuality(ctx, dev.IP, opts.PingTimeout)
 	}
 	s.Upsert(dev)
 }
 
-// TriggerScan initiates enrichment for all known devices
+// TriggerScan initiates enrichment for all known devices using default options.
 func TriggerScan(ctx context.Context, s *store.Store) {
+	opts := Options{
+		PingTimeout: 300 * time.Millisecond,
+		PortTimeout: 250 * time.Millisecond,
+		Ports:       CommonPorts,
+	}
 	for _, dev := range s.All() {
-		go enrich(ctx, dev, s)
+		go enrich(ctx, dev, s, opts)
 	}
 }
 
-// Run periodically scans the ARP table and updates the store
-func Run(ctx context.Context, s *store.Store) error {
+// Run periodically scans the ARP table and updates the store.
+func Run(ctx context.Context, s *store.Store, opts Options) error {
 	// Seed existing neighbors on startup
 	existing, err := parseARP()
 	if err != nil {
@@ -103,10 +117,10 @@ func Run(ctx context.Context, s *store.Store) error {
 			MAC: n.MAC,
 		})
 		known[n.IP] = true
-		go enrich(ctx, dev, s)
+		go enrich(ctx, dev, s, opts)
 	}
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(opts.Interval)
 	defer ticker.Stop()
 
 	slog.Info("arp scanner running")
@@ -132,7 +146,7 @@ func Run(ctx context.Context, s *store.Store) error {
 					})
 					slog.Info("device joined", "ip", dev.IP, "mac", dev.MAC)
 					known[ip] = true
-					go enrich(ctx, dev, s)
+					go enrich(ctx, dev, s, opts)
 				}
 			}
 			// Check for offline devices

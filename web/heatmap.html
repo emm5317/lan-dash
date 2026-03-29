@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LAN Latency Heatmap</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #fafafa; color: #222; }
+    nav { padding: 0.75rem 1.5rem; font-size: 14px; border-bottom: 1px solid #eee; background: #fff; }
+    nav a { text-decoration: none; color: #7F77DD; }
+    nav a.active { font-weight: 600; color: #1D9E75; }
+    nav span { color: #ccc; margin: 0 8px; }
+    h1 { padding: 1rem 1.5rem 0.5rem; font-size: 1.25rem; }
+    #heatmap-wrap {
+      padding: 0 1.5rem 2rem;
+      overflow-x: auto;
+    }
+    #heatmap {
+      display: grid;
+      gap: 1px;
+      width: max-content;
+    }
+    .hm-row {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+    }
+    .hm-label {
+      width: 140px;
+      min-width: 140px;
+      font-size: 12px;
+      color: #555;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding-right: 8px;
+      text-align: right;
+    }
+    .hm-cell {
+      width: 10px;
+      height: 18px;
+      border-radius: 2px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .hm-cell:hover { outline: 2px solid #333; }
+    .hm-xaxis {
+      display: flex;
+      margin-left: 140px;
+      gap: 1px;
+    }
+    .hm-xaxis-label {
+      font-size: 10px;
+      color: #888;
+      width: 10px;
+      text-align: left;
+      white-space: nowrap;
+      overflow: visible;
+    }
+    #tooltip {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 100;
+      line-height: 1.6;
+      max-width: 200px;
+    }
+    .legend {
+      display: flex;
+      gap: 12px;
+      margin: 0.75rem 1.5rem;
+      font-size: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-swatch { width: 16px; height: 16px; border-radius: 3px; }
+    #loading { padding: 2rem 1.5rem; color: #888; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Dashboard</a>
+    <span>|</span>
+    <a href="/graph.html">Graph</a>
+    <span>|</span>
+    <a href="/heatmap.html" class="active">Heatmap</a>
+  </nav>
+  <h1>Latency Heatmap <span style="font-size:13px;font-weight:400;color:#888;">(24h, 15min buckets)</span></h1>
+
+  <div class="legend">
+    <span style="color:#888;font-weight:500;">RTT:</span>
+    <div class="legend-item"><div class="legend-swatch" style="background:#1D9E75;"></div> &lt; 10ms</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#BA7517;"></div> 10–50ms</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#D85A30;"></div> 50–150ms</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#cc3333;"></div> &gt; 150ms</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#e0e0e0;"></div> No data</div>
+  </div>
+
+  <div id="loading">Loading...</div>
+  <div id="heatmap-wrap" style="display:none;">
+    <div id="heatmap"></div>
+  </div>
+  <div id="tooltip"></div>
+
+  <script>
+    const BUCKETS = 96; // 96 x 15min = 24h
+    const BUCKET_MS = 15 * 60 * 1000;
+
+    function rttColor(rtt) {
+      if (rtt === null) return "#e0e0e0";
+      if (rtt < 10)  return "#1D9E75";
+      if (rtt < 50)  return "#BA7517";
+      if (rtt < 150) return "#D85A30";
+      return "#cc3333";
+    }
+
+    function bucketIndex(ts, nowMs) {
+      // bucket 0 = 24h ago, bucket 95 = current 15min window
+      const age = nowMs - ts * 1000;
+      const idx = BUCKETS - 1 - Math.floor(age / BUCKET_MS);
+      return idx;
+    }
+
+    function bucketStartTime(idx, nowMs) {
+      const offset = (BUCKETS - 1 - idx) * BUCKET_MS;
+      return new Date(nowMs - offset);
+    }
+
+    function formatTime(date) {
+      return date.getHours().toString().padStart(2, "0") + ":" +
+             date.getMinutes().toString().padStart(2, "0");
+    }
+
+    const tooltip = document.getElementById("tooltip");
+
+    function showTip(event, label, rtt, time) {
+      while (tooltip.firstChild) tooltip.removeChild(tooltip.firstChild);
+
+      const ipDiv = document.createElement("div");
+      ipDiv.style.cssText = "font-weight:600;margin-bottom:2px;";
+      ipDiv.textContent = label;
+      tooltip.appendChild(ipDiv);
+
+      const timeDiv = document.createElement("div");
+      timeDiv.style.color = "#888";
+      timeDiv.textContent = time;
+      tooltip.appendChild(timeDiv);
+
+      const rttDiv = document.createElement("div");
+      if (rtt !== null) {
+        rttDiv.textContent = rtt.toFixed(2) + " ms avg";
+      } else {
+        rttDiv.style.color = "#aaa";
+        rttDiv.textContent = "No data";
+      }
+      tooltip.appendChild(rttDiv);
+
+      tooltip.style.opacity = "1";
+      moveTip(event);
+    }
+
+    function moveTip(event) {
+      let x = event.clientX + 14;
+      let y = event.clientY - 10;
+      if (x + 210 > window.innerWidth) x = event.clientX - 220;
+      tooltip.style.left = x + "px";
+      tooltip.style.top = y + "px";
+    }
+
+    function hideTip() {
+      tooltip.style.opacity = "0";
+    }
+
+    async function load() {
+      const nowMs = Date.now();
+
+      const [devRes, histRes] = await Promise.all([
+        fetch("/api/devices"),
+        fetch("/api/history/all")
+      ]);
+      const devices = await devRes.json();
+      const histAll = await histRes.json();
+
+      // Build nickname map
+      const nickMap = {};
+      devices.forEach(d => { nickMap[d.ip] = d.nickname || d.ip; });
+
+      const heatmap = document.getElementById("heatmap");
+      while (heatmap.firstChild) heatmap.removeChild(heatmap.firstChild);
+
+      const ips = Object.keys(histAll).sort();
+      if (ips.length === 0) {
+        document.getElementById("loading").textContent = "No history data yet.";
+        return;
+      }
+
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("heatmap-wrap").style.display = "block";
+
+      // X-axis: time labels every 4h = every 16 buckets
+      const xAxis = document.createElement("div");
+      xAxis.className = "hm-xaxis";
+      for (let b = 0; b < BUCKETS; b++) {
+        const labelEl = document.createElement("div");
+        labelEl.className = "hm-xaxis-label";
+        if (b % 16 === 0) {
+          const t = bucketStartTime(b, nowMs);
+          labelEl.textContent = formatTime(t);
+        }
+        xAxis.appendChild(labelEl);
+      }
+      heatmap.appendChild(xAxis);
+
+      for (const ip of ips) {
+        const snaps = histAll[ip];
+
+        // Aggregate into buckets: sum RTT and count
+        const bucketSum = new Array(BUCKETS).fill(0);
+        const bucketCount = new Array(BUCKETS).fill(0);
+
+        for (const snap of snaps) {
+          const idx = bucketIndex(snap.timestamp, nowMs);
+          if (idx >= 0 && idx < BUCKETS) {
+            bucketSum[idx] += snap.rtt_ms;
+            bucketCount[idx]++;
+          }
+        }
+
+        const label = nickMap[ip] || ip;
+        const displayLabel = label !== ip ? label + " (" + ip + ")" : ip;
+
+        const row = document.createElement("div");
+        row.className = "hm-row";
+
+        const labelEl = document.createElement("div");
+        labelEl.className = "hm-label";
+        labelEl.title = displayLabel;
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        for (let b = 0; b < BUCKETS; b++) {
+          const cell = document.createElement("div");
+          cell.className = "hm-cell";
+          const rtt = bucketCount[b] > 0 ? bucketSum[b] / bucketCount[b] : null;
+          cell.style.background = rttColor(rtt);
+
+          const bucketTime = bucketStartTime(b, nowMs);
+          const timeStr = formatTime(bucketTime) + " – " + formatTime(new Date(bucketTime.getTime() + BUCKET_MS));
+
+          cell.addEventListener("mouseover", (e) => showTip(e, displayLabel, rtt, timeStr));
+          cell.addEventListener("mousemove", moveTip);
+          cell.addEventListener("mouseout", hideTip);
+
+          row.appendChild(cell);
+        }
+        heatmap.appendChild(row);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
