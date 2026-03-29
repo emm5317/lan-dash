@@ -29,7 +29,7 @@ func main() {
 	go h.StartHTTP()
 
 	// Start SSH TUI server
-	t.StartSSH()
+	go t.StartSSH()
 
 	log.Println("LAN Dash started")
 	select {} // Block forever

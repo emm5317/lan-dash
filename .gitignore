@@ -1,1 +1,3 @@
 .ssh/host_key
+.ssh/host_key.pub
+*.exe
