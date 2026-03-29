@@ -1,33 +1,57 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>LAN Dash</title>
+  <meta charset="UTF-8">
+  <title>LAN Dashboard</title>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@starfederation/datastar@latest/dist/datastar.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 8px 12px; border-bottom: 1px solid #ddd; font-weight: 500; }
+    td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
+    .online  { color: #1D9E75; font-weight: 500; }
+    .offline { color: #888; }
+    .port    { background: #f0f0f0; border-radius: 4px; padding: 1px 6px;
+               font-family: monospace; font-size: 12px; margin: 0 2px; }
+    .rtt-fast   { color: #1D9E75; }
+    .rtt-medium { color: #BA7517; }
+    .rtt-slow   { color: #D85A30; }
+    input { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; width: 260px; margin-bottom: 1rem; }
+  </style>
 </head>
 <body>
-    <h1>LAN Devices</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>IP</th>
-                <th>MAC</th>
-                <th>Vendor</th>
-                <th>Hostname</th>
-                <th>RTT (ms)</th>
-                <th>Alive</th>
-            </tr>
-        </thead>
-        <tbody id="devices">
-            <!-- Devices will be inserted here -->
-        </tbody>
-    </table>
 
-    <script type="module">
-        import { Datastar } from 'https://cdn.jsdelivr.net/npm/@sudodevnull/datastar@1/dist/datastar.js';
+  <h1>LAN Dashboard</h1>
 
-        const es = new EventSource('/api/events');
-        es.onmessage = function(event) {
-            Datastar.morph(event.data);
-        };
-    </script>
+  <div style="display:flex; gap:12px; align-items:center; margin-bottom:1rem;">
+    <input
+      type="text"
+      data-bind-filter=""
+      placeholder="filter by IP, vendor, hostname…">
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>IP</th>
+        <th>Status</th>
+        <th>RTT</th>
+        <th>Vendor</th>
+        <th>Hostname</th>
+        <th>Open ports</th>
+      </tr>
+    </thead>
+    <!--
+      data-on-load opens the SSE connection immediately.
+      Datastar processes incoming datastar-merge-fragments events
+      and morphs the DOM — no JS written by you.
+    -->
+    <tbody
+      id="device-tbody"
+      data-on-load="$$get('/api/events')">
+    </tbody>
+  </table>
+
 </body>
 </html>

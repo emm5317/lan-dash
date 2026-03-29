@@ -16,7 +16,7 @@ func NewHandler(s *store.Store) *Handler {
 
 func (h *Handler) StartHTTP() {
 	http.HandleFunc("/api/devices", h.getDevices)
-	http.HandleFunc("/api/events", h.sseEvents)
+	http.HandleFunc("/api/events", DatastarHandler(h.store))
 	http.ListenAndServe(":8080", nil)
 }
 
