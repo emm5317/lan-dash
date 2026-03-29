@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,12 +10,13 @@ import (
 )
 
 type Model struct {
-	store   *store.Store
-	devices []store.Device
-	cursor  int
-	filter  string
-	width   int
-	height  int
+	store     *store.Store
+	devices   []store.Device
+	cursor    int
+	filter    string
+	filtering bool
+	width     int
+	height    int
 }
 
 func newModel(s *store.Store) tea.Model {
@@ -39,7 +39,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+
+		// ctrl+c always quits
+		if key == "ctrl+c" {
+			return m, tea.Quit
+		}
+
+		if m.filtering {
+			switch key {
+			case "esc":
+				m.filter = ""
+				m.filtering = false
+			case "enter":
+				m.filtering = false
+			case "backspace":
+				runes := []rune(m.filter)
+				if len(runes) > 0 {
+					m.filter = string(runes[:len(runes)-1])
+				}
+			default:
+				if len(key) == 1 && key[0] >= 32 {
+					m.filter += key
+				}
+			}
+			m.cursor = 0
+			return m, nil
+		}
+
+		// Normal mode
+		switch key {
+		case "/":
+			m.filtering = true
 		case "j", "down":
 			if m.cursor < len(m.filtered())-1 {
 				m.cursor++
@@ -50,47 +81,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "s":
 			return m, triggerScan(m.store)
-		case "q", "ctrl+c":
+		case "q":
 			return m, tea.Quit
 		}
 	}
 	return m, nil
 }
 
-func (m Model) View() string {
-	filtered := m.filtered()
-
-	// Header with filter info
-	header := "LAN Dashboard"
-	if m.filter != "" {
-		header += " (filtered: " + m.filter + ")"
-	}
-	header += "\n\n"
-
-	// Controls
-	controls := "j/k: navigate • s: scan • q: quit\n\n"
-
-	// Table
-	table := renderTable(filtered)
-
-	// Cursor indicator
-	if len(filtered) > 0 && m.cursor < len(filtered) {
-		cursorLine := fmt.Sprintf("\n→ %s", filtered[m.cursor].IP)
-		table += cursorLine
-	}
-
-	return header + controls + table
-}
-
 func (m Model) filtered() []store.Device {
 	if m.filter == "" {
 		return m.devices
 	}
+	lower := strings.ToLower(m.filter)
 	var out []store.Device
 	for _, d := range m.devices {
-		if strings.Contains(d.IP, m.filter) ||
-			strings.Contains(d.Vendor, m.filter) ||
-			strings.Contains(d.Hostname, m.filter) {
+		if strings.Contains(strings.ToLower(d.IP), lower) ||
+			strings.Contains(strings.ToLower(d.Vendor), lower) ||
+			strings.Contains(strings.ToLower(d.Hostname), lower) {
 			out = append(out, d)
 		}
 	}

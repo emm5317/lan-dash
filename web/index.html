@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>LAN Dashboard</title>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@starfederation/datastar@latest/dist/datastar.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@sudodevnull/datastar"></script>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -18,16 +18,19 @@
     .rtt-slow   { color: #D85A30; }
     input { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px;
             font-size: 13px; width: 260px; margin-bottom: 1rem; }
+    button { padding: 6px 14px; border: 1px solid #ddd; border-radius: 6px;
+             font-size: 13px; cursor: pointer; background: #fff; }
+    button:hover { background: #f5f5f5; }
   </style>
 </head>
-<body>
+<body data-store='{"filter":""}'>
 
   <h1>LAN Dashboard</h1>
 
   <div style="display:flex; gap:12px; align-items:center; margin-bottom:1rem;">
     <input
       type="text"
-      data-bind-filter=""
+      data-model="filter"
       placeholder="filter by IP, vendor, hostname…">
     <button data-on-click="$$post('/api/scan')">Scan now</button>
   </div>
@@ -43,11 +46,6 @@
         <th>Open ports</th>
       </tr>
     </thead>
-    <!--
-      data-on-load opens the SSE connection immediately.
-      Datastar processes incoming datastar-merge-fragments events
-      and morphs the DOM — no JS written by you.
-    -->
     <tbody
       id="device-tbody"
       data-on-load="$$get('/api/events')">

@@ -7,16 +7,20 @@ import (
 	"os"
 	"path/filepath"
 
+	"time"
+
+	"github.com/emm5317/lan-dash/internal/history"
 	"github.com/emm5317/lan-dash/internal/scanner"
 	"github.com/emm5317/lan-dash/internal/store"
 )
 
 type Handler struct {
 	store *store.Store
+	db    *history.DB
 }
 
-func NewHandler(s *store.Store) *Handler {
-	return &Handler{store: s}
+func NewHandler(s *store.Store, db *history.DB) *Handler {
+	return &Handler{store: s, db: db}
 }
 
 // getWebDir returns the path to the web directory.
@@ -39,14 +43,15 @@ func getWebDir() string {
 	return filepath.Join(wd, "web")
 }
 
-func (h *Handler) StartHTTP() {
+func (h *Handler) Handler() http.Handler {
 	webDir := getWebDir()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/devices", h.getDevices)
 	mux.HandleFunc("/api/events", DatastarHandler(h.store))
 	mux.HandleFunc("/api/scan", h.scanDevices)
+	mux.HandleFunc("/api/history", h.getHistory)
 	mux.Handle("/", http.FileServer(http.Dir(webDir)))
-	http.ListenAndServe(":3000", mux)
+	return mux
 }
 
 func (h *Handler) getDevices(w http.ResponseWriter, r *http.Request) {
@@ -71,4 +76,23 @@ func (h *Handler) scanDevices(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte("Scan initiated"))
+}
+
+func (h *Handler) getHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ip := r.URL.Query().Get("ip")
+	if ip == "" {
+		http.Error(w, "ip parameter required", http.StatusBadRequest)
+		return
+	}
+	snapshots, err := h.db.History(ip, 24*time.Hour)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(snapshots)
 }

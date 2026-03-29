@@ -19,19 +19,16 @@ func NewTUI(s *store.Store) *TUI {
 	return &TUI{store: s}
 }
 
-func (t *TUI) StartSSH() {
+func (t *TUI) NewSSHServer() *ssh.Server {
 	// Check if SSH host key exists, generate if missing
 	keyPath := ".ssh/host_key"
 	if stat, err := os.Stat(keyPath); os.IsNotExist(err) || (err == nil && stat.Size() == 0) {
-		// Remove empty key file if it exists
 		if err == nil && stat.Size() == 0 {
 			os.Remove(keyPath)
 		}
-		// Create .ssh directory if it doesn't exist
 		if err := os.MkdirAll(".ssh", 0700); err != nil {
 			panic("failed to create .ssh directory: " + err.Error())
 		}
-		// Generate Ed25519 key and write to disk
 		_, err := keygen.New(keyPath, keygen.WithKeyType(keygen.Ed25519), keygen.WithWrite())
 		if err != nil {
 			panic("failed to generate SSH host key: " + err.Error())
@@ -49,7 +46,7 @@ func (t *TUI) StartSSH() {
 	if err != nil {
 		panic(err)
 	}
-	s.ListenAndServe()
+	return s
 }
 
 func (t *TUI) teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {

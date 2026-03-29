@@ -1,3 +1,6 @@
 .ssh/host_key
 .ssh/host_key.pub
 *.exe
+lan-dash.db
+lan-dash.db-wal
+lan-dash.db-shm

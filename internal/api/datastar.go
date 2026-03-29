@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/emm5317/lan-dash/internal/store"
@@ -22,9 +23,11 @@ func DatastarHandler(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// Send the full table immediately on connect
+		// Send the full table immediately on connect — wrap in tbody for morph
 		var buf bytes.Buffer
+		buf.WriteString(`<tbody id="device-tbody">`)
 		renderTable(&buf, s.All())
+		buf.WriteString(`</tbody>`)
 		writeFragment(w, "#device-tbody", "morph", buf.String())
 		flusher.Flush()
 
@@ -46,13 +49,14 @@ func DatastarHandler(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// writeFragment emits a Datastar merge-fragments SSE event.
-// The client script reads these field names and updates the DOM.
-func writeFragment(w io.Writer, selector, mergeMode, html string) {
-	fmt.Fprintf(w, "event: datastar-merge-fragments\n")
+// writeFragment emits a Datastar fragment SSE event.
+func writeFragment(w io.Writer, selector, mergeMode, fragment string) {
+	oneLine := strings.Join(strings.Fields(strings.TrimSpace(fragment)), " ")
+	fmt.Fprintf(w, "event: datastar-fragment\n")
 	fmt.Fprintf(w, "data: selector %s\n", selector)
-	fmt.Fprintf(w, "data: mergeMode %s\n", mergeMode)
-	fmt.Fprintf(w, "data: fragments %s\n\n", html)
+	fmt.Fprintf(w, "data: merge %s\n", mergeMode)
+	fmt.Fprintf(w, "data: settle 0\n")
+	fmt.Fprintf(w, "data: fragment %s\n\n", oneLine)
 }
 
 func renderTable(buf *bytes.Buffer, devices []store.Device) {

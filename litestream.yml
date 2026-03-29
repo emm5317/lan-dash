@@ -1,0 +1,9 @@
+dbs:
+  - path: lan-dash.db
+    replicas:
+      - type: s3
+        bucket: YOUR_B2_BUCKET
+        path: lan-dash
+        endpoint: https://s3.us-west-000.backblazeb2.com
+        access-key-id: YOUR_KEY_ID
+        secret-access-key: YOUR_APP_KEY

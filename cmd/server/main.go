@@ -2,35 +2,77 @@ package main
 
 import (
 	"context"
-	"log"
 	"log/slog"
+	"net/http"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/emm5317/lan-dash/internal/api"
+	"github.com/emm5317/lan-dash/internal/history"
 	"github.com/emm5317/lan-dash/internal/scanner"
 	"github.com/emm5317/lan-dash/internal/store"
 	"github.com/emm5317/lan-dash/internal/tui"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	s := store.New()
-	h := api.NewHandler(s)
+
+	// SQLite scan history
+	db, err := history.Open("lan-dash.db")
+	if err != nil {
+		slog.Error("failed to open history db", "err", err)
+		return
+	}
+	defer db.Close()
+	go db.Listen(ctx, s)
+
+	// Sweep subnet to populate ARP table, then discover mDNS hostnames
+	scanner.SweepSubnet(ctx)
+	scanner.DiscoverMDNS(ctx, s, 3*time.Second)
+
+	h := api.NewHandler(s, db)
 	t := tui.NewTUI(s)
 
-	ctx := context.Background()
-
-	// Start scanner
+	// Scanner
 	go func() {
 		if err := scanner.Run(ctx, s); err != nil {
-			slog.Error("scanner failed", "err", err)
+			slog.Info("scanner stopped", "reason", err)
 		}
 	}()
 
-	// Start HTTP server
-	go h.StartHTTP()
+	// HTTP server
+	httpSrv := &http.Server{Addr: ":3000", Handler: h.Handler()}
 
-	// Start SSH TUI server
-	go t.StartSSH()
+	// SSH server
+	sshSrv := t.NewSSHServer()
 
-	log.Println("LAN Dash started")
-	select {} // Block forever
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		slog.Info("HTTP listening", "addr", ":3000")
+		httpSrv.ListenAndServe()
+	}()
+
+	go func() {
+		defer wg.Done()
+		slog.Info("SSH listening", "addr", ":2223")
+		sshSrv.ListenAndServe()
+	}()
+
+	<-ctx.Done()
+	slog.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	httpSrv.Shutdown(shutdownCtx)
+	sshSrv.Shutdown(shutdownCtx)
+	wg.Wait()
 }
